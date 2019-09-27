@@ -7,6 +7,8 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+#include <vector>
+
 #ifdef _WIN32
 // To avoid conflict between time.h and pthread.h on Windows
 #define HAVE_STRUCT_TIMESPEC
@@ -54,8 +56,29 @@
 #define MAX_VEL 2.7 // 2.77 m/s = 10 km/h
 #define DEL_VEL 0.2
 
+// 仿真设置.
 struct option_t
 {
+	option_t()
+	{
+		navfile[0] = 0;
+		almfile[0] = 0;
+		umfile[0] = 0;
+		g0.week = -1;
+		g0.sec = 0.0;
+		iduration = USER_MOTION_SIZE;
+		verb = TRUE;
+		nmeaGGA = FALSE;
+		staticLocationMode = TRUE; // default user motion
+		llh[0] = 40.7850916 / R2D;
+		llh[1] = -73.968285 / R2D;
+		llh[2] = 100.0;
+		interactive = FALSE;
+		timeoverwrite = FALSE;
+		iono_enable = TRUE;
+		path_loss_enable = TRUE;
+	}
+
 	char navfile[MAX_CHAR];
 	char almfile[MAX_CHAR];
 	char umfile[MAX_CHAR];
@@ -71,33 +94,58 @@ struct option_t
 	int path_loss_enable;
 };
 
-struct tx_t 
+// 信号发射结构.
+struct tx_t
 {
-	tx_t() : buffer(nullptr)
+	tx_t() 
 	{
+		//buffer = nullptr;
+		xb_board = 0;
+		txvga1 = TX_VGA1;
+	}
+
+	std::thread thread; //发送线程.
+	std::mutex lock; // 发送线程互斥量.
+
+	BladeRf dev2; // 射频设备.
+	
+	std::vector<int16_t> buffer;
+	//int16_t* buffer; // 发送缓冲区，长度为 SAMPLES_PER_BUFFER * sizeof(int16_t) * 2
+
+	int xb_board;
+	int txvga1;
+};
+
+struct gps_t
+{
+	gps_t()
+	{
+		ready = 0;
 	}
 
 	std::thread thread; //pthread_t thread;
-	std::mutex lock; // pthread_mutex_t lock;
-	//int error;
-		
-	BladeRf dev2; // Pickwick: //struct bladerf* dev;
-	int16_t* buffer;
-};
-
-struct gps_t 
-{
-	std::thread thread; //pthread_t thread;
 	std::mutex lock; //pthread_mutex_t lock;
-	//int error;
 
 	int ready;
-	std::condition_variable initialization_done; 
-	//pthread_cond_t initialization_done; // 初始化条件.
+	std::condition_variable initialization_done; // 初始化条件.
 };
 
-struct sim_t 
+struct sim_t
 {
+	sim_t()
+	{
+		status = 0;
+		head = 0;
+		tail = 0;
+		sample_length = 0;
+
+		finished = false;
+
+		//fifo = nullptr;
+
+		time = 0.0;
+	}
+
 	option_t opt;
 
 	tx_t tx;
@@ -105,16 +153,17 @@ struct sim_t
 
 	int status;
 	bool finished;
-	int16_t* fifo;
+
+	std::vector<int16_t> fifo;
+	//int16_t* fifo;
+	
 	long head, tail;
 	size_t sample_length;
 
-	std::condition_variable fifo_read_ready;
-	std::condition_variable fifo_write_ready;
-	//pthread_cond_t fifo_read_ready; // 读取FIFO标志.
-	//pthread_cond_t fifo_write_ready;// 写入FIFO标志.
-
 	double time;
+
+	std::condition_variable fifo_read_ready; // 读取FIFO标志.
+	std::condition_variable fifo_write_ready;// 写入FIFO标志.
 };
 
 extern void* gps_task(void* arg);

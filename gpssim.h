@@ -1,6 +1,7 @@
 #ifndef GPSSIM_H
 #define GPSSIM_H
 
+
 #ifndef TRUE
 #define TRUE (1)
 #endif

@@ -7,7 +7,7 @@ BladeRf::BladeRf() : dev(nullptr)
 {
 }
 
-int BladeRf::enable(bool on)
+int BladeRf::enable_module(bool on)
 {
 	int status = 0;
 
@@ -172,6 +172,8 @@ int BladeRf::send(int16_t *buffer, int count, unsigned int timeout)
 
 #ifdef USE_BLADERF
 	status = bladerf_sync_tx(dev, buffer, count, NULL, timeout);
+#else
+	//std::this_thread::sleep_for(std::chrono::milliseconds(8));
 #endif
 
 	return status;

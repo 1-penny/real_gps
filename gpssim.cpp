@@ -5,6 +5,8 @@
 #include <string.h>
 #include <math.h>
 
+#include <array>
+
 #include <time.h>
 #include <omp.h>
 #ifdef _WIN32
@@ -1511,7 +1513,7 @@ void computeCodePhase(channel_t* chan, range_t rho1, double dt)
 
 
 
- //int readUserMotion(double xyz[USER_MOTION_SIZE][3], const char *filename)
+//int readUserMotion(double xyz[USER_MOTION_SIZE][3], const char *filename)
 int readUserMotion(double** xyz, const char* filename)
 {
 	FILE* fp;
@@ -1888,7 +1890,8 @@ void* gps_task(void* arg)
 
 	int ip, qp;
 	int iTable;
-	short* iq_buff = NULL;
+	//short* iq_buff = NULL;
+	std::vector<short> iq_buff;
 
 	gpstime_t grx;
 	double delt;
@@ -1897,8 +1900,11 @@ void* gps_task(void* arg)
 	int iumd;
 	int numd;
 	char umfile[MAX_CHAR];
+	typedef std::array<double, 3> double3_t;
+	std::vector<double3_t> xyz;
+
 	//double xyz[USER_MOTION_SIZE][3];
-	double** xyz;
+	//double** xyz;
 
 	int staticLocationMode = FALSE;
 	int nmeaGGA = FALSE;
@@ -1978,36 +1984,37 @@ void* gps_task(void* arg)
 	////////////////////////////////////////////////////////////
 
 	// Allocate user motion array
-	xyz = (double**)malloc(USER_MOTION_SIZE * sizeof(double**));
+	xyz.resize(USER_MOTION_SIZE);
+	//xyz = (double**)malloc(USER_MOTION_SIZE * sizeof(double**));
 
-	if (xyz == NULL)
-	{
-		printf("ERROR: Faild to allocate user motion array.\n");
-		goto exit;
-	}
+	//if (xyz == NULL)
+	//{
+	//	printf("ERROR: Faild to allocate user motion array.\n");
+	//	goto exit;
+	//}
 
-	for (i = 0; i < USER_MOTION_SIZE; i++)
-	{
-		xyz[i] = (double*)malloc(3 * sizeof(double));
+	//for (i = 0; i < USER_MOTION_SIZE; i++)
+	//{
+	//	xyz[i] = (double*)malloc(3 * sizeof(double));
 
-		if (xyz[i] == NULL)
-		{
-			for (j = i - 1; j >= 0; j--)
-				free(xyz[i]);
+	//	if (xyz[i] == NULL)
+	//	{
+	//		for (j = i - 1; j >= 0; j--)
+	//			free(xyz[i]);
 
-			printf("ERROR: Faild to allocate user motion array.\n");
-			goto exit;
-		}
-	}
+	//		printf("ERROR: Faild to allocate user motion array.\n");
+	//		goto exit;
+	//	}
+	//}
 
 	if (!staticLocationMode)
 	{
 		// Read user motion file
 		if (nmeaGGA == TRUE)
-			numd = readNmeaGGA(xyz, umfile);
+			numd = readNmeaGGA((double**) xyz.data(), umfile);
 		else
 		{
-			numd = readUserMotion(xyz, umfile);
+			numd = readUserMotion((double **) xyz.data(), umfile);
 		}
 
 		if (numd == -1)
@@ -2030,7 +2037,7 @@ void* gps_task(void* arg)
 		// Static geodetic coordinates input mode: "-l"
 		// Added by scateu@gmail.com 
 		printf("Using static location mode.\n");
-		llh2xyz(llh, xyz[0]); // Convert llh to xyz
+		llh2xyz(llh, xyz[0].data()); // Convert llh to xyz
 
 		numd = iduration;
 
@@ -2231,9 +2238,10 @@ void* gps_task(void* arg)
 	////////////////////////////////////////////////////////////
 
 	// Allocate I/Q buffer
-	iq_buff = (short *) calloc(2 * iq_buff_size, 2);
+	//iq_buff = (short *) calloc(2 * iq_buff_size, 2);
+	iq_buff.resize(2 * iq_buff_size);
 
-	if (iq_buff == NULL)
+	if (iq_buff.empty())
 	{
 		printf("ERROR: Faild to allocate 16-bit I/Q buffer.\n");
 		goto exit;
@@ -2255,7 +2263,7 @@ void* gps_task(void* arg)
 	grx = incGpsTime(g0, 0.0);
 
 	// Allocate visible satellites
-	allocateChannel(chan, eph[ieph], ionoutc, alm, grx, xyz[0], elvmask);
+	allocateChannel(chan, eph[ieph], ionoutc, alm, grx, xyz[0].data(), elvmask);
 
 	for (i = 0; i < MAX_CHAN; i++)
 	{
@@ -2376,7 +2384,7 @@ void* gps_task(void* arg)
 				sv = chan[i].prn - 1;
 
 				// Current pseudorange
-				computeRange(&rho, eph[ieph][sv], &ionoutc, grx, xyz[iumd]);
+				computeRange(&rho, eph[ieph][sv], &ionoutc, grx, xyz[iumd].data());
 				chan[i].azel[0] = rho.azel[0];
 				chan[i].azel[1] = rho.azel[1];
 
@@ -2471,29 +2479,27 @@ void* gps_task(void* arg)
 			// Initialization has been done. Ready to create TX task.
 			printf("GPS signal generator is ready!\n");
 			s->gps.ready = 1;
-			//pthread_cond_signal(&(s->gps.initialization_done));
+
 			s->gps.initialization_done.notify_all();
 		}
+		
+		// 此部分代码牵涉条件同步.
+		{
+			// Wait utill FIFO write is ready
+			std::unique_lock<std::mutex> lock(s->gps.lock);
+			while (!is_fifo_write_ready(s)) {
+				s->fifo_write_ready.wait(lock);
+			}
 
-		// Wait utill FIFO write is ready
-		std::unique_lock<std::mutex> lock(s->gps.lock);
-		//pthread_mutex_lock(&(s->gps.lock));
-		while (!is_fifo_write_ready(s)) {
-			//pthread_cond_wait(&(s->fifo_write_ready), &(s->gps.lock));
-			s->fifo_write_ready.wait(lock);
+			// Write into FIFO
+			memcpy(&(s->fifo[s->head * 2]), iq_buff.data(), NUM_IQ_SAMPLES * 2 * sizeof(short));
+
+			s->head += (long)NUM_IQ_SAMPLES;
+			if (s->head >= FIFO_LENGTH)
+				s->head -= FIFO_LENGTH;
+
+			s->fifo_read_ready.notify_all();
 		}
-			
-		//pthread_mutex_unlock(&(s->gps.lock));
-
-		// Write into FIFO
-		memcpy(&(s->fifo[s->head * 2]), iq_buff, NUM_IQ_SAMPLES * 2 * sizeof(short));
-
-		s->head += (long)NUM_IQ_SAMPLES;
-		if (s->head >= FIFO_LENGTH)
-			s->head -= FIFO_LENGTH;
-
-		//pthread_cond_signal(&(s->fifo_read_ready));
-		s->fifo_read_ready.notify_all();
 
 		//
 		// Update navigation message and channel allocation every 30 seconds
@@ -2534,7 +2540,7 @@ void* gps_task(void* arg)
 			}
 
 			// Update channel allocation
-			allocateChannel(chan, eph[ieph], ionoutc, alm, grx, xyz[iumd], elvmask);
+			allocateChannel(chan, eph[ieph], ionoutc, alm, grx, xyz[iumd].data(), elvmask);
 
 			// Show ditails about simulated channels
 			if (verb)
@@ -2544,7 +2550,7 @@ void* gps_task(void* arg)
 				printf("%4d/%02d/%02d,%02d:%02d:%02.0f (%d:%.0f)\n",
 					t0.y, t0.m, t0.d, t0.hh, t0.mm, t0.sec, grx.week, grx.sec);
 				printf("xyz = %11.1f, %11.1f, %11.1f\n", xyz[iumd][0], xyz[iumd][1], xyz[iumd][2]);
-				xyz2llh(xyz[iumd], llh);
+				xyz2llh(xyz[iumd].data(), llh);
 				printf("llh = %11.6f, %11.6f, %11.1f\n", llh[0] * R2D, llh[1] * R2D, llh[2]);
 				for (i = 0; i < MAX_CHAN; i++)
 				{
@@ -2571,15 +2577,14 @@ abort:
 	// Done!
 	s->finished = true;
 
-	// Free I/Q buffer
-	free(iq_buff);
-
 	// Free user motion array
-	for (i = 0; i < USER_MOTION_SIZE; i++)
-		free(xyz[i]);
-	free(xyz);
+	//for (i = 0; i < USER_MOTION_SIZE; i++)
+	//	free(xyz[i]);
+	//free(xyz);
 
 exit:
-	printf("Abort.\n");
-	return (NULL);
+	s->fifo_read_ready.notify_all();
+	printf("\n Gps Task Finish.\n");
+	
+	return NULL;
 }
