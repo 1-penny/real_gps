@@ -5,6 +5,14 @@
 
 BladeRf::BladeRf() : dev(nullptr)
 {
+	m_output_file.open("sigal.bin", std::ios::binary);
+}
+
+BladeRf::~BladeRf()
+{
+	if (m_output_file.is_open()) {
+		m_output_file.close();
+	}
 }
 
 int BladeRf::enable_module(bool on)
@@ -173,6 +181,9 @@ int BladeRf::send(int16_t *buffer, int count, unsigned int timeout)
 #ifdef USE_BLADERF
 	status = bladerf_sync_tx(dev, buffer, count, NULL, timeout);
 #else
+	if (m_output_file.is_open()) {
+		//m_output_file.write((const char *)buffer, sizeof(int16_t) * count * 2);
+	}
 	//std::this_thread::sleep_for(std::chrono::milliseconds(8));
 #endif
 

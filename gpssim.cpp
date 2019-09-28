@@ -1890,7 +1890,6 @@ void* gps_task(void* arg)
 
 	int ip, qp;
 	int iTable;
-	//short* iq_buff = NULL;
 	std::vector<short> iq_buff;
 
 	gpstime_t grx;
@@ -1985,36 +1984,16 @@ void* gps_task(void* arg)
 
 	// Allocate user motion array
 	xyz.resize(USER_MOTION_SIZE);
-	//xyz = (double**)malloc(USER_MOTION_SIZE * sizeof(double**));
 
-	//if (xyz == NULL)
-	//{
-	//	printf("ERROR: Faild to allocate user motion array.\n");
-	//	goto exit;
-	//}
-
-	//for (i = 0; i < USER_MOTION_SIZE; i++)
-	//{
-	//	xyz[i] = (double*)malloc(3 * sizeof(double));
-
-	//	if (xyz[i] == NULL)
-	//	{
-	//		for (j = i - 1; j >= 0; j--)
-	//			free(xyz[i]);
-
-	//		printf("ERROR: Faild to allocate user motion array.\n");
-	//		goto exit;
-	//	}
-	//}
 
 	if (!staticLocationMode)
 	{
 		// Read user motion file
 		if (nmeaGGA == TRUE)
-			numd = readNmeaGGA((double**) xyz.data(), umfile);
+			numd = readNmeaGGA((double**)xyz.data(), umfile);
 		else
 		{
-			numd = readUserMotion((double **) xyz.data(), umfile);
+			numd = readUserMotion((double**)xyz.data(), umfile);
 		}
 
 		if (numd == -1)
@@ -2482,8 +2461,8 @@ void* gps_task(void* arg)
 
 			s->gps.initialization_done.notify_all();
 		}
-		
-		// 此部分代码牵涉条件同步.
+
+		/// 此部分代码牵涉条件同步.
 		{
 			// Wait utill FIFO write is ready
 			std::unique_lock<std::mutex> lock(s->gps.lock);
@@ -2491,7 +2470,7 @@ void* gps_task(void* arg)
 				s->fifo_write_ready.wait(lock);
 			}
 
-			// Write into FIFO
+			// Write 0.1s data into FIFO 
 			memcpy(&(s->fifo[s->head * 2]), iq_buff.data(), NUM_IQ_SAMPLES * 2 * sizeof(short));
 
 			s->head += (long)NUM_IQ_SAMPLES;
@@ -2501,10 +2480,8 @@ void* gps_task(void* arg)
 			s->fifo_read_ready.notify_all();
 		}
 
-		//
 		// Update navigation message and channel allocation every 30 seconds
-		//
-
+		
 		igrx = (int)(grx.sec * 10.0 + 0.5);
 
 		if (igrx % 300 == 0) // Every 30 seconds
@@ -2573,18 +2550,12 @@ abort:
 #ifndef _WIN32
 	changemode(0);
 #endif
-
 	// Done!
 	s->finished = true;
-
-	// Free user motion array
-	//for (i = 0; i < USER_MOTION_SIZE; i++)
-	//	free(xyz[i]);
-	//free(xyz);
 
 exit:
 	s->fifo_read_ready.notify_all();
 	printf("\n Gps Task Finish.\n");
-	
+
 	return NULL;
 }

@@ -108,9 +108,10 @@ struct tx_t
 	std::mutex lock; // 发送线程互斥量.
 
 	BladeRf dev2; // 射频设备.
-	
+
+	// 发送缓冲区，当前长度为32k个IQ样点 
+	// = SAMPLES_PER_BUFFER(32k) * sizeof(int16_t) * 2，
 	std::vector<int16_t> buffer;
-	//int16_t* buffer; // 发送缓冲区，长度为 SAMPLES_PER_BUFFER * sizeof(int16_t) * 2
 
 	int xb_board;
 	int txvga1;
@@ -140,9 +141,7 @@ struct sim_t
 		sample_length = 0;
 
 		finished = false;
-
-		//fifo = nullptr;
-
+		
 		time = 0.0;
 	}
 
@@ -154,9 +153,10 @@ struct sim_t
 	int status;
 	bool finished;
 
-	std::vector<int16_t> fifo;
-	//int16_t* fifo;
-	
+	// 全局FIFO队列，长度为 0.1 秒数据量的两倍.
+	// = FIFO_LENGTH * 2 = (NUM_IQ_SAMPLES * 2) * 2 = (TX_SAMPLERATE / 10) * 2 * 2
+	std::vector<int16_t> fifo; 
+		
 	long head, tail;
 	size_t sample_length;
 

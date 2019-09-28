@@ -2,6 +2,8 @@
 
 #include "bladegps.h"
 
+//haha
+
 // for _getch used in Windows runtime.
 #ifdef _WIN32
 #include <conio.h>
@@ -111,7 +113,7 @@ void init_sim(sim_t& s, int argc, char* argv[])
 		"real_gps.exe",
 		"-l", "130,30,0",
 		"-e", "brdc3300.18n",
-		"-d", "10",
+		"-d", "5",
 	};
 
 	if (!use_default_arg && argc < 3)
@@ -296,28 +298,26 @@ void* tx_task(void* arg)
 	sim_t* s = (sim_t*)arg;
 	size_t samples_populated;
 
-	while (1) {
+	while (true) {
 		int16_t* tx_buffer_current = s->tx.buffer.data();
 		unsigned int buffer_samples_remaining = SAMPLES_PER_BUFFER;
-
+		
 		while (buffer_samples_remaining > 0) {
-
-			// 此部分代码牵涉条件同步.
+			/// 此部分代码牵涉条件同步.
 			{
 				std::unique_lock<std::mutex> lock(s->gps.lock);
-				while (get_sample_length(s) == 0 && !is_finished_generation(s))
+				while (get_sample_length(s) == 0/* && !is_finished_generation(s)*/)
 				{
 					s->fifo_read_ready.wait(lock);
 				}
 
-				if (is_finished_generation(s)) {
-					goto out;
-				}
+				//if (is_finished_generation(s)) {
+				//	break;
+				//}
 
 				samples_populated = fifo_read(
 					tx_buffer_current, buffer_samples_remaining, s);
 
-				lock.unlock();
 				s->fifo_write_ready.notify_all();
 			}
 			
@@ -340,20 +340,16 @@ void* tx_task(void* arg)
 		}
 
 		// If there were no errors, transmit the data buffer.
-		//bladerf_sync_tx(s->tx.dev, s->tx.buffer, SAMPLES_PER_BUFFER, NULL, TIMEOUT_MS);
 		s->tx.dev2.send(s->tx.buffer.data(), SAMPLES_PER_BUFFER, TIMEOUT_MS);
-		if (is_fifo_write_ready(s)) {
-			/*
-			printf("\rTime = %4.1f", s->time);
-			s->time += 0.1;
-			fflush(stdout);
-			*/
-		}
-		else if (is_finished_generation(s))
-		{
-			goto out;
-		}
+		//if (is_fifo_write_ready(s)) {
+		//	printf("\rTime = %4.1f", s->time);
+		//	s->time += 0.1;
+		//	fflush(stdout);
+		//}
 
+		if (is_finished_generation(s)) {
+			break;
+		}
 	}
 out:
 	printf("\n Tx Task Finish.\n");
@@ -366,8 +362,7 @@ int start_tx_task(sim_t* s)
 	int status = 0;
 
 	s->tx.thread = std::thread(tx_task, s);
-	//status = pthread_create(&(s->tx.thread), NULL, tx_task, s);
-
+	
 	return status;
 }
 
@@ -376,8 +371,7 @@ int start_gps_task(sim_t* s)
 	int status = 0;
 
 	s->gps.thread = std::thread(gps_task, s);
-	//status = pthread_create(&(s->gps.thread), NULL, gps_task, s);
-
+	
 	return status;
 }
 
@@ -392,7 +386,6 @@ int main(int argc, char* argv[])
 	init_sim(s, argc, argv);
 
 	// Allocate TX buffer to hold each block of samples to transmit.
-	//s.tx.buffer = (int16_t*)malloc(SAMPLES_PER_BUFFER * sizeof(int16_t) * 2); // for 16-bit I and Q samples
 	s.tx.buffer.resize(SAMPLES_PER_BUFFER * 2);
 
 	if (s.tx.buffer.empty()) {
@@ -401,7 +394,6 @@ int main(int argc, char* argv[])
 	}
 
 	// Allocate FIFOs to hold 0.1 seconds of I/Q samples each.
-	//s.fifo = (int16_t*)malloc(FIFO_LENGTH * sizeof(int16_t) * 2); 
 	s.fifo.resize(FIFO_LENGTH * 2);// for 16-bit I and Q samples
 	if (s.fifo.empty()) {
 		fprintf(stderr, "Failed to allocate I/Q sample buffer.\n");
@@ -433,7 +425,6 @@ int main(int argc, char* argv[])
 
 	// Fillfull the FIFO.
 	if (is_fifo_write_ready(&s)) {
-		//pthread_cond_signal(&(s.fifo_write_ready));
 		s.fifo_write_ready.notify_all();
 	}
 

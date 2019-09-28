@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fstream>
 //#define USE_BLADERF
 
 #if defined(USE_BLADERF)
@@ -17,7 +18,7 @@ class BladeRf
 {
 public:
 	BladeRf();
-	virtual ~BladeRf() {}
+	virtual ~BladeRf();
 
 	// 打开设备.
 	int open(const char* str = nullptr);
@@ -60,4 +61,5 @@ public:
 
 private:
 	bladerf* dev;
+	std::ofstream m_output_file;
 };
